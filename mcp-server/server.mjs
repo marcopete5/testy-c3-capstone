@@ -37,7 +37,9 @@ async function listTasks(args = {}) {
   return { content: [{ type: "text", text: JSON.stringify(tasks, null, 2) }] };
 }
 
-const isRequestObject = (m) => m !== null && typeof m === "object" && !Array.isArray(m);
+const isRequestObject = (m) =>
+  m !== null && typeof m === "object" && !Array.isArray(m) && typeof m.method === "string" &&
+  (m.id === undefined || m.id === null || typeof m.id === "string" || typeof m.id === "number");
 process.on("unhandledRejection", (err) => console.error("[teampulse-mcp] unhandled rejection", err));
 
 async function handle(msg) {
@@ -69,7 +71,14 @@ if (process.argv.includes("--http")) {
   const port = Number(process.env.PORT || 8787);
   const MAX_BODY = 64 * 1024;
   const ALLOWED_HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const json = (res, status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+  const json = (res, status, obj) => {
+    let payload;
+    try { payload = JSON.stringify(obj); }
+    catch { status = 500; payload = JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "internal error" } }); }
+    if (res.headersSent) return res.end();
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(payload);
+  };
   createServer(async (req, res) => {
     req.setTimeout(10_000, () => req.destroy());
     // Loopback only, and no browser origin may drive it (DNS-rebinding / CSRF guard).
@@ -90,7 +99,8 @@ if (process.argv.includes("--http")) {
     try { json(res, 200, (await handle(msg)) ?? {}); }
     catch (err) {
       console.error("[teampulse-mcp] dispatch failed", err);
-      json(res, 500, { jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32603, message: "internal error" } });
+      if (res.headersSent) res.destroy();
+      else json(res, 500, { jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32603, message: "internal error" } });
     }
   }).listen(port, "127.0.0.1", () => console.error(`[teampulse-mcp] http on 127.0.0.1:${port}`));
 } else {
