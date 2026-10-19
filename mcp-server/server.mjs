@@ -3,8 +3,12 @@
 // writes go through the app's confirm-gated path (see docs/AUTONOMY-JUSTIFICATION.md).
 //
 // Run:   node mcp-server/server.mjs           (stdio transport, for an MCP client)
-//        node mcp-server/server.mjs --http    (HTTP status + JSON-RPC on :8787)
+//        node mcp-server/server.mjs --http    (HTTP status + JSON-RPC on 127.0.0.1:8787)
 // No dependencies: the protocol surface here is small enough to speak by hand.
+//
+// HTTP mode is for local testing only: it binds to loopback, refuses browser
+// origins it doesn't know, caps the request body, and never echoes internal
+// error text to the caller (error handling, see docs/AUTONOMY-JUSTIFICATION.md).
 
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -49,7 +53,10 @@ async function handle(msg) {
     case "tools/call":
       if (params?.name !== "list_tasks") return error(-32602, `unknown tool: ${params?.name}`);
       try { return reply(await listTasks(params.arguments)); }
-      catch (err) { return reply({ content: [{ type: "text", text: `list_tasks failed: ${err.message}` }], isError: true }); }
+      catch (err) {
+        console.error("[teampulse-mcp] list_tasks failed", err);
+        return reply({ content: [{ type: "text", text: "list_tasks failed (see server log)" }], isError: true });
+      }
     default:
       return id === undefined ? null : error(-32601, `method not found: ${method}`);
   }
@@ -57,28 +64,33 @@ async function handle(msg) {
 
 if (process.argv.includes("--http")) {
   const port = Number(process.env.PORT || 8787);
+  const MAX_BODY = 64 * 1024;
+  const ALLOWED_HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  const json = (res, status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
   createServer(async (req, res) => {
-    if (req.method !== "POST") {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ server: SERVER_INFO, tools: TOOLS.map((t) => t.name), scope: "read-only" }));
+    req.setTimeout(10_000, () => req.destroy());
+    // Loopback only, and no browser origin may drive it (DNS-rebinding / CSRF guard).
+    if (!ALLOWED_HOSTS.has(req.headers.host ?? "") || req.headers.origin) return json(res, 403, { error: "forbidden" });
+    if (req.method !== "POST") return json(res, 200, { server: SERVER_INFO, tools: TOOLS.map((t) => t.name), scope: "read-only" });
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+    if (Number(req.headers["content-length"] ?? 0) > MAX_BODY) return json(res, 413, { error: "body too large" });
+    let body = "", len = 0;
+    for await (const chunk of req) {
+      len += chunk.length;
+      if (len > MAX_BODY) { json(res, 413, { error: "body too large" }); return req.destroy(); }
+      body += chunk;
     }
-    let body = "";
-    for await (const chunk of req) body += chunk;
-    try {
-      const out = await handle(JSON.parse(body));
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(out ?? {}));
-    } catch (err) {
-      res.writeHead(400, { "content-type": "application/json" });
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: `parse error: ${err.message}` } }));
-    }
-  }).listen(port, () => console.error(`[teampulse-mcp] http on :${port}`));
+    let msg;
+    try { msg = JSON.parse(body); }
+    catch { return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }); }
+    json(res, 200, (await handle(msg)) ?? {});
+  }).listen(port, "127.0.0.1", () => console.error(`[teampulse-mcp] http on 127.0.0.1:${port}`));
 } else {
   const rl = createInterface({ input: process.stdin });
   rl.on("line", async (line) => {
     if (!line.trim()) return;
     let msg;
-    try { msg = JSON.parse(line); } catch (err) { return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: `parse error: ${err.message}` } }) + "\n"); }
+    try { msg = JSON.parse(line); } catch { return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n"); }
     const out = await handle(msg);
     if (out) process.stdout.write(JSON.stringify(out) + "\n");
   });
