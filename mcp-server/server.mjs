@@ -37,6 +37,9 @@ async function listTasks(args = {}) {
   return { content: [{ type: "text", text: JSON.stringify(tasks, null, 2) }] };
 }
 
+const isRequestObject = (m) => m !== null && typeof m === "object" && !Array.isArray(m);
+process.on("unhandledRejection", (err) => console.error("[teampulse-mcp] unhandled rejection", err));
+
 async function handle(msg) {
   const { id, method, params } = msg;
   const reply = (result) => ({ jsonrpc: "2.0", id, result });
@@ -83,7 +86,12 @@ if (process.argv.includes("--http")) {
     let msg;
     try { msg = JSON.parse(body); }
     catch { return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }); }
-    json(res, 200, (await handle(msg)) ?? {});
+    if (!isRequestObject(msg)) return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } });
+    try { json(res, 200, (await handle(msg)) ?? {}); }
+    catch (err) {
+      console.error("[teampulse-mcp] dispatch failed", err);
+      json(res, 500, { jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32603, message: "internal error" } });
+    }
   }).listen(port, "127.0.0.1", () => console.error(`[teampulse-mcp] http on 127.0.0.1:${port}`));
 } else {
   const rl = createInterface({ input: process.stdin });
@@ -91,7 +99,13 @@ if (process.argv.includes("--http")) {
     if (!line.trim()) return;
     let msg;
     try { msg = JSON.parse(line); } catch { return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n"); }
-    const out = await handle(msg);
-    if (out) process.stdout.write(JSON.stringify(out) + "\n");
+    if (!isRequestObject(msg)) return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } }) + "\n");
+    try {
+      const out = await handle(msg);
+      if (out) process.stdout.write(JSON.stringify(out) + "\n");
+    } catch (err) {
+      console.error("[teampulse-mcp] dispatch failed", err);
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32603, message: "internal error" } }) + "\n");
+    }
   });
 }
