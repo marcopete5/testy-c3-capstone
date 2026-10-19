@@ -1,0 +1,10 @@
+[
+  {"id":"t1","title":"Write release note for v2.3","column":"todo","ageDays":1,"note":"","owner":"Priya"},
+  {"id":"t2","title":"Fix date picker on Safari","column":"inprogress","ageDays":2,"note":"","owner":"Dev"},
+  {"id":"t3","title":"Rotate on-call calendar for November","column":"inprogress","ageDays":12,"note":"","owner":"Sam"},
+  {"id":"t4","title":"Replace hero image on landing page","column":"inprogress","ageDays":9,"note":"waiting on design","owner":"Ana"},
+  {"id":"t5","title":"Add keyboard shortcuts help","column":"todo","ageDays":3,"note":"","owner":"Dev"},
+  {"id":"t6","title":"Migrate CI to new runner image","column":"done","ageDays":4,"note":"","owner":"Sam"},
+  {"id":"t7","title":"Customer interview summary (Oct)","column":"inprogress","ageDays":0,"note":"","owner":"Priya"},
+  {"id":"t8","title":"Archive 2025 retro notes","column":"done","ageDays":15,"note":"","owner":"Ana"}
+]

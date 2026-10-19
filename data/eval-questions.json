@@ -1,0 +1,22 @@
+[
+  {"q":"When is a task stale?","expect":"H3"},
+  {"q":"How many days before a task counts as stale?","expect":"H3"},
+  {"q":"What are the board columns?","expect":"H2"},
+  {"q":"Where do I post my standup?","expect":"H1"},
+  {"q":"What time is standup?","expect":"H1"},
+  {"q":"How many reviews does a pull request need?","expect":"H4"},
+  {"q":"What is on the release checklist?","expect":"H5"},
+  {"q":"Can we release on Friday?","expect":"H5"},
+  {"q":"How do I roll back a release?","expect":"H6"},
+  {"q":"Who is on call?","expect":"H7"},
+  {"q":"What are core hours?","expect":"H8"},
+  {"q":"What should go in a task note?","expect":"H9"},
+  {"q":"Can the bot move my task?","expect":"H10"},
+  {"q":"Who do I tell when I'm away?","expect":"H11"},
+  {"q":"Where do I look if a task moved on its own?","expect":"H12"},
+  {"q":"What is the wifi password?","expect":null},
+  {"q":"How much does Pinecone cost?","expect":null},
+  {"q":"Who is the CEO?","expect":null},
+  {"q":"What's for lunch?","expect":null},
+  {"q":"How do I reset my laptop?","expect":null}
+]

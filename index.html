@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeamPulse Rebuild</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1f1d1a; --muted:#6b665e; --line:#e2ddd3; --amber:#c8761c; --green:#2f7d4f; --red:#b3362f; --blue:#2b5f9e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); background:var(--card); display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; }
+  header .sub { color:var(--muted); font-size:13px; }
+  main { max-width:1180px; margin:0 auto; padding:20px 24px 60px; display:grid; gap:20px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .panel h2 { margin:0 0 6px; font-size:16px; }
+  .panel .hint { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  .board { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .col { background:var(--bg); border-radius:8px; padding:10px; min-height:160px; }
+  .col h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .task { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
+  .task .t { font-weight:600; }
+  .task .m { color:var(--muted); font-size:12px; }
+  .task .note { font-size:12px; color:var(--amber); margin-top:3px; }
+  .task .stale { color:var(--red); font-weight:600; }
+  .task .acts { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
+  button { font:inherit; font-size:13px; padding:5px 10px; border-radius:6px; border:1px solid var(--line); background:var(--card); cursor:pointer; }
+  button.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.warn { border-color:var(--red); color:var(--red); }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text] { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .answer { margin-top:12px; padding:12px; border-left:3px solid var(--green); background:#f2f8f4; border-radius:6px; }
+  .answer.refusal { border-color:var(--amber); background:#fbf4ea; }
+  .cite { font-size:12px; color:var(--blue); margin-top:6px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:860px){ .two,.board{ grid-template-columns:1fr; } }
+  .log { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#1f1d1a; color:#e8e3d9; border-radius:8px; padding:12px; max-height:320px; overflow:auto; white-space:pre-wrap; }
+  .log .run { color:#f0b35a; }
+  .steps { margin:10px 0 0; padding:0; list-style:none; }
+  .steps li { padding:4px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .steps li.done::before { content:"✓ "; color:var(--green); }
+  .steps li.wait::before { content:"… "; color:var(--amber); }
+  .gate { margin-top:12px; padding:12px; border:1px solid var(--amber); background:#fbf4ea; border-radius:8px; }
+  .gate ul { margin:6px 0 10px 18px; padding:0; }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:20px; }
+  a { color:var(--blue); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TeamPulse Rebuild</h1>
+  <span class="sub">The C2 task board, rebuilt the deliberate way: grounded handbook answers, a governed stale-task agent, and an audit log.</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Board</h2>
+    <p class="hint">Click a task's buttons to move it. Tasks that have sat in <em>In progress</em> for 7 or more days are marked stale (handbook §H3).</p>
+    <div class="board" id="board"></div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="newTask" placeholder="New task title" style="max-width:360px">
+      <button id="addTask">Add task</button>
+      <button id="resetData">Reset demo data</button>
+    </div>
+  </section>
+
+  <div class="two">
+    <section class="panel">
+      <h2>Ask the handbook</h2>
+      <p class="hint">Grounded answers only: every reply quotes a handbook passage and cites it. If nothing in the handbook matches, it says so instead of guessing.</p>
+      <div class="row">
+        <input type="text" id="question" placeholder="e.g. When is a task stale?" style="flex:1">
+        <button class="primary" id="ask">Ask</button>
+      </div>
+      <div class="row" style="margin-top:8px; font-size:12px; color:var(--muted)">
+        Try: <a href="#" data-q="When is a task stale?">When is a task stale?</a> ·
+        <a href="#" data-q="How do I roll back a release?">How do I roll back a release?</a> ·
+        <a href="#" data-q="What is the wifi password?">What is the wifi password?</a>
+      </div>
+      <div id="answer"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Stale sweep agent</h2>
+      <p class="hint">Reads the board through the same <code>list_tasks</code> tool the MCP server exposes, finds stale tasks, and <strong>proposes</strong> moving them back to To do. Nothing moves until you approve (confirm-gated writes).</p>
+      <div class="row">
+        <button class="primary" id="runAgent">Run stale sweep</button>
+        <button id="undoRun" disabled>Undo last run</button>
+      </div>
+      <ul class="steps" id="steps"></ul>
+      <div id="gate"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Audit log</h2>
+    <p class="hint">Every agent step, approval, and rollback, newest run first. Stored in this browser. <a href="docs/AUDIT-LOG.md">Exported runs from the build</a> are in the repo.</p>
+    <div class="row" style="margin-bottom:10px">
+      <button id="copyLog">Copy log</button>
+      <button id="downloadLog">Download .md</button>
+      <button class="warn" id="clearLog">Clear log</button>
+    </div>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<footer>TeamPulse Rebuild · a test capstone for the Course 3 viva walkthrough · <a href="https://github.com/marcopete5/testy-c3-capstone">repo</a> · <a href="mcp/">MCP server status</a></footer>
+
+<script>
+(() => {
+  const DAY = 86400000;
+  const STALE_DAYS = 7;
+  const KEY_TASKS = "tp3.tasks", KEY_LOG = "tp3.audit", KEY_SNAP = "tp3.snapshot";
+  const $ = (s) => document.querySelector(s);
+  let handbook = [];
+
+  // ── storage ─────────────────────────────────────────────────────────
+  const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
+  const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+  async function seedTasks() {
+    const res = await fetch("data/tasks.seed.json");
+    const seed = await res.json();
+    const now = Date.now();
+    const tasks = seed.map(t => ({ id: t.id, title: t.title, column: t.column, owner: t.owner, note: t.note, updatedAt: now - t.ageDays * DAY }));
+    save(KEY_TASKS, tasks);
+    return tasks;
+  }
+  async function getTasks() { return load(KEY_TASKS, null) ?? await seedTasks(); }
+
+  // ── tool: list_tasks (same contract as mcp-server/server.mjs) ───────
+  async function list_tasks() {
+    const tasks = await getTasks();
+    return tasks.map(t => ({ ...t, ageDays: Math.floor((Date.now() - t.updatedAt) / DAY) }));
+  }
+
+  // ── board ───────────────────────────────────────────────────────────
+  const COLS = [["todo","To do"],["inprogress","In progress"],["done","Done"]];
+  async function renderBoard() {
+    const tasks = await list_tasks();
+    const board = $("#board"); board.innerHTML = "";
+    for (const [key, label] of COLS) {
+      const col = document.createElement("div"); col.className = "col";
+      col.innerHTML = `<h3>${label}</h3>`;
+      for (const t of tasks.filter(t => t.column === key)) {
+        const stale = key === "inprogress" && t.ageDays >= STALE_DAYS;
+        const el = document.createElement("div"); el.className = "task";
+        el.innerHTML = `<div class="t">${esc(t.title)}</div>
+          <div class="m">${esc(t.owner)} · updated ${t.ageDays === 0 ? "today" : t.ageDays + "d ago"} ${stale ? '<span class="stale">· stale</span>' : ""}</div>
+          ${t.note ? `<div class="note">note: ${esc(t.note)}</div>` : ""}
+          <div class="acts">${COLS.filter(c => c[0] !== key).map(c => `<button data-move="${t.id}:${c[0]}">→ ${c[1]}</button>`).join("")}<button class="warn" data-del="${t.id}">Delete</button></div>`;
+        col.appendChild(el);
+      }
+      board.appendChild(col);
+    }
+  }
+  async function moveTask(id, column, note, actor = "person") {
+    const tasks = await getTasks();
+    const t = tasks.find(x => x.id === id); if (!t) return;
+    t.column = column; t.updatedAt = Date.now(); if (note !== undefined) t.note = note;
+    save(KEY_TASKS, tasks);
+    if (actor === "person") log(null, "board", `person moved "${t.title}" → ${column}`);
+    renderBoard();
+  }
+  $("#board").addEventListener("click", async (e) => {
+    const mv = e.target.dataset.move, del = e.target.dataset.del;
+    if (mv) { const [id, col] = mv.split(":"); await moveTask(id, col); }
+    if (del) { const tasks = await getTasks(); const t = tasks.find(x => x.id === del); save(KEY_TASKS, tasks.filter(x => x.id !== del)); log(null, "board", `person deleted "${t?.title}"`); renderBoard(); }
+  });
+  $("#addTask").addEventListener("click", async () => {
+    const title = $("#newTask").value.trim(); if (!title) return;
+    const tasks = await getTasks();
+    tasks.push({ id: "t" + Date.now().toString(36), title, column: "todo", owner: "You", note: "", updatedAt: Date.now() });
+    save(KEY_TASKS, tasks); $("#newTask").value = ""; log(null, "board", `person added "${title}"`); renderBoard();
+  });
+  $("#resetData").addEventListener("click", async () => { await seedTasks(); localStorage.removeItem(KEY_SNAP); $("#undoRun").disabled = true; log(null, "board", "demo data reset to seed"); renderBoard(); });
+
+  // ── grounded Q&A: BM25 over the handbook (self-taught element) ──────
+  const tokenize = (s) => s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 2 && !STOP.has(w));
+  const STOP = new Set(["the","and","for","are","but","not","you","all","any","can","had","her","was","one","our","out","has","his","how","its","may","who","did","get","let","say","she","too","use","what","when","does","this","that","with","from","have","will","your","than","then","them","they","into","about","there","which","while","where","should","would","could"]);
+  let index = null;
+  function buildIndex(docs) {
+    const tf = docs.map(d => { const m = new Map(); for (const w of tokenize(d.title + " " + d.text)) m.set(w, (m.get(w) || 0) + 1); return m; });
+    const df = new Map(); tf.forEach(m => { for (const w of m.keys()) df.set(w, (df.get(w) || 0) + 1); });
+    const len = tf.map(m => [...m.values()].reduce((a, b) => a + b, 0));
+    const avg = len.reduce((a, b) => a + b, 0) / len.length;
+    index = { tf, df, len, avg, N: docs.length };
+  }
+  function bm25(q) {
+    const k1 = 1.2, b = 0.75, terms = tokenize(q);
+    return handbook.map((d, i) => {
+      let s = 0;
+      for (const t of terms) {
+        const f = index.tf[i].get(t) || 0; if (!f) continue;
+        const idf = Math.log(1 + (index.N - index.df.get(t) + 0.5) / (index.df.get(t) + 0.5));
+        s += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * index.len[i] / index.avg));
+      }
+      return { d, s };
+    }).sort((a, b) => b.s - a.s);
+  }
+  const THRESHOLD = 1.0; // output validation: below this, refuse rather than guess
+  function ask(q) {
+    const out = $("#answer");
+    if (!q.trim()) return;
+    const [best] = bm25(q);
+    if (!best || best.s < THRESHOLD) {
+      out.innerHTML = `<div class="answer refusal"><strong>I couldn't find that in the handbook.</strong> The handbook covers standup, the board, stale tasks, reviews, releases, rollbacks, on-call, hours, notes, permissions, time off, and the audit log.<div class="cite">no citation · top score ${best ? best.s.toFixed(2) : "0"} below threshold ${THRESHOLD}</div></div>`;
+      log(null, "handbook", `question refused (no grounded match): "${q}"`);
+      return;
+    }
+    out.innerHTML = `<div class="answer">${esc(best.d.text)}<div class="cite">Source: Team Handbook §${best.d.id} · ${esc(best.d.title)} · score ${best.s.toFixed(2)}</div></div>`;
+    log(null, "handbook", `answered "${q}" from §${best.d.id} (score ${best.s.toFixed(2)})`);
+  }
+  $("#ask").addEventListener("click", () => ask($("#question").value));
+  $("#question").addEventListener("keydown", (e) => { if (e.key === "Enter") ask($("#question").value); });
+  document.querySelectorAll("[data-q]").forEach(a => a.addEventListener("click", (e) => { e.preventDefault(); $("#question").value = a.dataset.q; ask(a.dataset.q); }));
+
+  // ── audit log ───────────────────────────────────────────────────────
+  function log(runId, step, detail) {
+    const entries = load(KEY_LOG, []);
+    entries.push({ ts: new Date().toISOString(), runId, step, detail });
+    save(KEY_LOG, entries); renderLog();
+  }
+  function logText() {
+    const entries = load(KEY_LOG, []);
+    return entries.map(e => `[${e.ts}] ${e.runId ? e.runId + " " : ""}${e.step}: ${e.detail}`).join("\n");
+  }
+  function renderLog() {
+    const entries = load(KEY_LOG, []).slice().reverse();
+    $("#log").innerHTML = entries.length ? entries.map(e => `[${e.ts}] ${e.runId ? `<span class="run">${e.runId}</span> ` : ""}${esc(e.step)}: ${esc(e.detail)}`).join("\n") : "(empty — run the agent or move a task)";
+  }
+  $("#copyLog").addEventListener("click", () => navigator.clipboard?.writeText(logText()));
+  $("#downloadLog").addEventListener("click", () => {
+    const blob = new Blob(["# TeamPulse audit log (browser export)\n\n```\n" + logText() + "\n```\n"], { type: "text/markdown" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "audit-log.md"; a.click();
+  });
+  $("#clearLog").addEventListener("click", () => { save(KEY_LOG, []); renderLog(); });
+
+  // ── stale sweep agent (confirm-gated writes) ────────────────────────
+  let pending = null;
+  function setSteps(list) { $("#steps").innerHTML = list.map(([state, text]) => `<li class="${state}">${esc(text)}</li>`).join(""); }
+  function runId() { const d = new Date(); const p = (n) => String(n).padStart(2, "0"); return `run-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  $("#runAgent").addEventListener("click", async () => {
+    $("#runAgent").disabled = true; $("#gate").innerHTML = "";
+    const id = runId(); const steps = [];
+    const push = (state, text) => { steps.push([state, text]); setSteps(steps); };
+    try {
+      push("done", `Plan: find In-progress tasks untouched ${STALE_DAYS}+ days; propose moving them to To do with a note (handbook §H3).`);
+      log(id, "plan", `stale sweep started; policy: In progress ≥ ${STALE_DAYS} days → propose move to To do`);
+      await wait(400);
+      const tasks = await list_tasks();
+      push("done", `Tool list_tasks → ${tasks.length} tasks read (read-only).`);
+      log(id, "tool:list_tasks", `read ${tasks.length} tasks`);
+      await wait(400);
+      const stale = tasks.filter(t => t.column === "inprogress" && t.ageDays >= STALE_DAYS);
+      push("done", `Evaluate → ${stale.length} stale candidate(s): ${stale.map(t => `"${t.title}" (${t.ageDays}d)`).join(", ") || "none"}.`);
+      log(id, "evaluate", `${stale.length} stale candidate(s): ${stale.map(t => t.id + " " + t.ageDays + "d").join(", ") || "none"}`);
+      if (stale.length === 0) {
+        push("done", "Nothing to propose. Run complete.");
+        log(id, "done", "no changes proposed");
+        return;
+      }
+      push("wait", "Gate: waiting for a person to approve or reject the proposal.");
+      log(id, "gate", `awaiting approval for ${stale.length} move(s)`);
+      pending = { id, stale, steps };
+      $("#gate").innerHTML = `<div class="gate"><strong>Proposal (${stale.length})</strong><ul>${stale.map(t => `<li>Move "${esc(t.title)}" back to To do · note: "paused ${t.ageDays}d — stale sweep"</li>`).join("")}</ul><div class="row"><button class="primary" id="approve">Approve</button><button id="reject">Reject</button></div></div>`;
+      $("#approve").addEventListener("click", applyPending);
+      $("#reject").addEventListener("click", rejectPending);
+    } finally {
+      if (!pending) $("#runAgent").disabled = false;
+    }
+  });
+
+  async function applyPending() {
+    const { id, stale, steps } = pending; pending = null;
+    steps[steps.length - 1] = ["done", "Gate: approved by a person."];
+    log(id, "gate", "approved");
+    save(KEY_SNAP, { runId: id, tasks: await getTasks() });
+    log(id, "snapshot", "board snapshot saved for rollback");
+    for (const t of stale) { await moveTask(t.id, "todo", `paused ${t.ageDays}d — stale sweep ${id}`, "agent"); log(id, "write:move_task", `${t.id} "${t.title}" inprogress → todo`); }
+    steps.push(["done", `Apply → moved ${stale.length} task(s). Snapshot saved; Undo is available.`]);
+    steps.push(["done", "Run complete."]); setSteps(steps);
+    log(id, "done", `${stale.length} task(s) moved`);
+    $("#gate").innerHTML = ""; $("#undoRun").disabled = false; $("#runAgent").disabled = false;
+  }
+  function rejectPending() {
+    const { id, steps } = pending; pending = null;
+    steps[steps.length - 1] = ["done", "Gate: rejected by a person. No changes made."];
+    steps.push(["done", "Run complete."]); setSteps(steps);
+    log(id, "gate", "rejected — no changes made"); log(id, "done", "0 tasks moved");
+    $("#gate").innerHTML = ""; $("#runAgent").disabled = false;
+  }
+  $("#undoRun").addEventListener("click", async () => {
+    const snap = load(KEY_SNAP, null); if (!snap) return;
+    save(KEY_TASKS, snap.tasks); localStorage.removeItem(KEY_SNAP);
+    log(snap.runId, "rollback", "board restored from snapshot taken before apply");
+    $("#undoRun").disabled = true; setSteps([["done", `Rolled back ${snap.runId}.`]]); renderBoard();
+  });
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  // ── boot ────────────────────────────────────────────────────────────
+  (async () => {
+    handbook = await (await fetch("data/handbook.json")).json();
+    buildIndex(handbook);
+    await renderBoard(); renderLog();
+    $("#undoRun").disabled = !load(KEY_SNAP, null);
+  })();
+})();
+</script>
+</body>
+</html>
